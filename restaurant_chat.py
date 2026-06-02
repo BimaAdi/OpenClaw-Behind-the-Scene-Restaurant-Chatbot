@@ -136,10 +136,12 @@ async def main():
                     response_text_parts.append(chunk.text)
                     print(chunk.text, end="", flush=True)
 
+            # check custom command
             assistant_text = "".join(response_text_parts).strip()
             if assistant_text:
                 rendered_parts = [assistant_text]
 
+                ## parse command list_menu()
                 if "list_menu()" in assistant_text:
                     menu_response = "\n".join(
                         [f"{item['menu']}: {item['price']}" for item in list_menu()]
@@ -147,6 +149,7 @@ async def main():
                     rendered_parts.append(menu_response)
                     print(f"\n{menu_response}", end="", flush=True)
 
+                ## parse command search_menu(keyword)
                 search_matches = re.findall(r"search_menu\(([^)]*)\)", assistant_text)
                 for raw_keyword in search_matches:
                     keyword = raw_keyword.strip().strip('"').strip("'")
