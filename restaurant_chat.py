@@ -1,8 +1,14 @@
 import asyncio
 import os
+import re
 from typing import TypedDict
 from dotenv import load_dotenv
 from google import genai
+from google.genai import types
+
+
+MODEL_NAME = "gemini-2.5-flash"
+MAX_TURNS = 20
 
 
 class MenuItem(TypedDict):
@@ -66,6 +72,14 @@ def search_menu(keyword: str) -> list[MenuItem]:
     return [item for item in MENU if normalized_keyword in item["menu"].casefold()]
 
 
+def trim_history(history: list[types.Content], max_turns: int) -> list[types.Content]:
+    """Keep only the latest N user/model turn pairs."""
+    max_messages = max_turns * 2
+    if len(history) <= max_messages:
+        return history
+    return history[-max_messages:]
+
+
 async def main():
     """Simple CLI chat app using Gemini."""
     load_dotenv()
@@ -78,18 +92,15 @@ async def main():
     # Create a client
     client = genai.Client(api_key=api_key)
 
-    # Create a chat session
-    chat = client.aio.chats.create(model="gemini-3.5-flash")
-
     # Add personality and menu command to the system prompt
     system_prompt = """
         You are a helpful and friendly restaurant assistant.
         if you want to get list of menu just call ```list_menu()``` on prompt
         if you want to search menu just call ```search_menu(keyword)``` on prompt with keyword as parameter
     """
-    stream = await chat.send_message_stream(system_prompt)
-    async for chunk in stream:
-        pass  # Consume the system prompt response to set the context
+
+    # Keep explicit history so each request includes prior turns.
+    history: list[types.Content] = []
 
     print("🤖 Gemini Chat CLI")
     print("Type 'exit' or 'quit' to end the chat\n")
@@ -107,33 +118,53 @@ async def main():
 
             # Stream message chunks from Gemini as they arrive.
             print("\nGemini: ", end="", flush=True)
-            stream = await chat.send_message_stream(user_input)
-            # extra_prompt = ""
+            user_content = types.Content(
+                role="user",
+                parts=[types.Part.from_text(text=user_input)],
+            )
+            request_contents = [*history, user_content]
+
+            stream = await client.aio.models.generate_content_stream(
+                model=MODEL_NAME,
+                contents=request_contents,
+                config=types.GenerateContentConfig(system_instruction=system_prompt),
+            )
+
+            response_text_parts: list[str] = []
             async for chunk in stream:
                 if chunk.text:
+                    response_text_parts.append(chunk.text)
                     print(chunk.text, end="", flush=True)
-                    # check is chunk.text contains list_menu() call and respond with menu if it does
-                    if "list_menu()" in chunk.text:
-                        menu_response = "\n".join(
-                            [f"{item['menu']}: {item['price']}" for item in list_menu()]
-                        )
-                        print(f"\n{menu_response}", end="", flush=True)
-                    if "search_menu(" in chunk.text:
-                        # extract keyword from search_menu() call
-                        start_index = chunk.text.find("search_menu(") + len(
-                            "search_menu("
-                        )
-                        end_index = chunk.text.find(")", start_index)
-                        keyword = (
-                            chunk.text[start_index:end_index].strip('"').strip("'")
-                        )
-                        search_response = "\n".join(
-                            [
-                                f"{item['menu']}: {item['price']}"
-                                for item in search_menu(keyword)
-                            ]
-                        )
-                        print(f"\n{search_response}", end="", flush=True)
+
+            assistant_text = "".join(response_text_parts).strip()
+            if assistant_text:
+                rendered_parts = [assistant_text]
+
+                if "list_menu()" in assistant_text:
+                    menu_response = "\n".join(
+                        [f"{item['menu']}: {item['price']}" for item in list_menu()]
+                    )
+                    rendered_parts.append(menu_response)
+                    print(f"\n{menu_response}", end="", flush=True)
+
+                search_matches = re.findall(r"search_menu\(([^)]*)\)", assistant_text)
+                for raw_keyword in search_matches:
+                    keyword = raw_keyword.strip().strip('"').strip("'")
+                    search_response = "\n".join(
+                        [
+                            f"{item['menu']}: {item['price']}"
+                            for item in search_menu(keyword)
+                        ]
+                    )
+                    rendered_parts.append(search_response)
+                    print(f"\n{search_response}", end="", flush=True)
+
+                model_content = types.Content(
+                    role="model",
+                    parts=[types.Part.from_text(text="\n".join(rendered_parts))],
+                )
+                history.extend([user_content, model_content])
+                history = trim_history(history, MAX_TURNS)
             print("\n")
 
         except KeyboardInterrupt:
