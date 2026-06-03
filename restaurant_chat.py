@@ -1,75 +1,41 @@
 import asyncio
 import os
 import re
-from typing import TypedDict
 from dotenv import load_dotenv
 from google import genai
 from google.genai import types
+from restaurant_tools import format_menu, list_menu, search_menu
 
 
 MODEL_NAME = "gemini-2.5-flash"
 MAX_TURNS = 20
 
 
-class MenuItem(TypedDict):
-    menu: str
-    price: int
+def extract_tool_call(text: str) -> str | None:
+    strict_match = re.search(
+        r"TOOL_CALL:\s*(list_menu\(\)|search_menu\(([^)]*)\))",
+        text,
+    )
+    if strict_match:
+        return strict_match.group(1).strip()
+
+    loose_match = re.search(r"\b(list_menu\(\)|search_menu\(([^)]*)\))", text)
+    if loose_match:
+        return loose_match.group(1).strip()
+
+    return None
 
 
-MENU: list[MenuItem] = [
-    {
-        "menu": "Hamburger",
-        "price": 5000,
-    },
-    {
-        "menu": "Fries",
-        "price": 2000,
-    },
-    {
-        "menu": "Cheese Pizza",
-        "price": 12000,
-    },
-    {
-        "menu": "Chicken Wings",
-        "price": 9000,
-    },
-    {
-        "menu": "Spaghetti Bolognese",
-        "price": 11000,
-    },
-    {
-        "menu": "Caesar Salad",
-        "price": 7000,
-    },
-    {
-        "menu": "Grilled Salmon",
-        "price": 15000,
-    },
-    {
-        "menu": "Steak",
-        "price": 18000,
-    },
-    {
-        "menu": "Iced Tea",
-        "price": 3000,
-    },
-    {
-        "menu": "Chocolate Milkshake",
-        "price": 4500,
-    },
-]
+def execute_tool_call(tool_call: str) -> str:
+    if tool_call == "list_menu()":
+        return format_menu(list_menu())
 
+    search_match = re.fullmatch(r"search_menu\((.*)\)", tool_call)
+    if search_match:
+        keyword = search_match.group(1).strip().strip('"').strip("'")
+        return format_menu(search_menu(keyword))
 
-def list_menu() -> list[MenuItem]:
-    return MENU
-
-
-def search_menu(keyword: str) -> list[MenuItem]:
-    normalized_keyword = keyword.casefold().strip()
-    if not normalized_keyword:
-        return MENU
-
-    return [item for item in MENU if normalized_keyword in item["menu"].casefold()]
+    return f"Unsupported tool call: {tool_call}"
 
 
 def trim_history(history: list[types.Content], max_turns: int) -> list[types.Content]:
@@ -92,11 +58,18 @@ async def main():
     # Create a client
     client = genai.Client(api_key=api_key)
 
-    # Add personality and menu command to the system prompt
+    # Add personality and strict tool-call format to the system prompt
     system_prompt = """
         You are a helpful and friendly restaurant assistant.
-        if you want to get list of menu just call ```list_menu()``` on prompt
-        if you want to search menu just call ```search_menu(keyword)``` on prompt with keyword as parameter
+
+        You can ask for tools using these exact strings:
+        - TOOL_CALL: list_menu()
+        - TOOL_CALL: search_menu("keyword")
+
+        Rules:
+        - If you need menu data, only output one TOOL_CALL line.
+        - If you already have enough data, answer normally and do not output TOOL_CALL.
+        - After receiving a TOOL_RESULT message, use it to answer the user.
     """
 
     # Keep explicit history so each request includes prior turns.
@@ -105,9 +78,16 @@ async def main():
     print("🤖 Gemini Chat CLI")
     print("Type 'exit' or 'quit' to end the chat\n")
 
+    pending_user_prompt: str | None = None
+
     while True:
         try:
-            user_input = input("You: ").strip()
+            if pending_user_prompt:
+                user_input = pending_user_prompt
+                pending_user_prompt = None
+                print(f"Tools: {user_input}")
+            else:
+                user_input = input("You: ").strip()
 
             if not user_input:
                 continue
@@ -116,11 +96,17 @@ async def main():
                 print("Goodbye!")
                 break
 
+            llm_input = user_input
+            if extract_tool_call(user_input):
+                tool_result = execute_tool_call(user_input)
+                print(f"Tool Result:\n{tool_result}\n")
+                llm_input = f"TOOL_RESULT\ntool_call={user_input}\n{tool_result}"
+
             # Stream message chunks from Gemini as they arrive.
             print("\nGemini: ", end="", flush=True)
             user_content = types.Content(
                 role="user",
-                parts=[types.Part.from_text(text=user_input)],
+                parts=[types.Part.from_text(text=llm_input)],
             )
             request_contents = [*history, user_content]
 
@@ -136,35 +122,17 @@ async def main():
                     response_text_parts.append(chunk.text)
                     print(chunk.text, end="", flush=True)
 
-            # check custom command
+            # Check whether the model requested a tool call.
             assistant_text = "".join(response_text_parts).strip()
             if assistant_text:
-                rendered_parts = [assistant_text]
-
-                ## parse command list_menu()
-                if "list_menu()" in assistant_text:
-                    menu_response = "\n".join(
-                        [f"{item['menu']}: {item['price']}" for item in list_menu()]
-                    )
-                    rendered_parts.append(menu_response)
-                    print(f"\n{menu_response}", end="", flush=True)
-
-                ## parse command search_menu(keyword)
-                search_matches = re.findall(r"search_menu\(([^)]*)\)", assistant_text)
-                for raw_keyword in search_matches:
-                    keyword = raw_keyword.strip().strip('"').strip("'")
-                    search_response = "\n".join(
-                        [
-                            f"{item['menu']}: {item['price']}"
-                            for item in search_menu(keyword)
-                        ]
-                    )
-                    rendered_parts.append(search_response)
-                    print(f"\n{search_response}", end="", flush=True)
+                tool_call = extract_tool_call(assistant_text)
+                if tool_call:
+                    pending_user_prompt = tool_call
+                    print(f"\n[Detected tool request: {tool_call}]", end="", flush=True)
 
                 model_content = types.Content(
                     role="model",
-                    parts=[types.Part.from_text(text="\n".join(rendered_parts))],
+                    parts=[types.Part.from_text(text=assistant_text)],
                 )
                 history.extend([user_content, model_content])
                 history = trim_history(history, MAX_TURNS)

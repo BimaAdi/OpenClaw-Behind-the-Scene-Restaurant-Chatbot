@@ -1,4 +1,4 @@
-from restaurant_chat import list_menu, search_menu, MENU
+from restaurant_tools import list_menu, search_menu, MENU
 
 
 class TestListMenu:
