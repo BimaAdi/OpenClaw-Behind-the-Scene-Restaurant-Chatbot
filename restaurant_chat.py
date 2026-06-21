@@ -71,6 +71,10 @@ async def main():
         - If you already have enough data, answer normally and do not output TOOL_CALL.
         - After receiving a TOOL_RESULT message, use it to answer the user.
     """
+    system_prompt_content = types.Content(
+        role="user",
+        parts=[types.Part.from_text(text=system_prompt)],
+    )
 
     # Keep explicit history so each request includes prior turns.
     history: list[types.Content] = []
@@ -108,12 +112,11 @@ async def main():
                 role="user",
                 parts=[types.Part.from_text(text=llm_input)],
             )
-            request_contents = [*history, user_content]
+            request_contents = [system_prompt_content, *history, user_content]
 
             stream = await client.aio.models.generate_content_stream(
                 model=MODEL_NAME,
                 contents=request_contents,
-                config=types.GenerateContentConfig(system_instruction=system_prompt),
             )
 
             response_text_parts: list[str] = []
