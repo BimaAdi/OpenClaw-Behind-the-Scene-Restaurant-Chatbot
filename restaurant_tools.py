@@ -1,5 +1,10 @@
 from typing import TypedDict
 
+from mcp.server.fastmcp import FastMCP
+
+# Initialize FastMCP server
+mcp = FastMCP("restaurant", log_level="ERROR")
+
 
 class MenuItem(TypedDict):
     menu: str
@@ -66,3 +71,37 @@ def format_menu(items: list[MenuItem]) -> str:
     if not items:
         return "No menu items found."
     return "\n".join([f"{item['menu']}: {item['price']}" for item in items])
+
+
+# MCPfy
+@mcp.tool()
+async def list_menu_mcp() -> list[MenuItem]:
+    """
+    get list of menu
+    """
+    return list_menu()
+
+
+@mcp.tool()
+async def search_menu_mcp(keyword: str) -> list[MenuItem]:
+    """
+    search menu
+    """
+    return search_menu(keyword=keyword)
+
+
+@mcp.tool()
+async def format_menu_mcp(items: list[MenuItem]) -> str:
+    """
+    convert list[MenuItem] to str
+    """
+    return format_menu(items=items)
+
+
+def main():
+    # Initialize and run the server
+    mcp.run(transport="stdio")
+
+
+if __name__ == "__main__":
+    main()
