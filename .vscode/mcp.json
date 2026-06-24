@@ -1,0 +1,13 @@
+{
+	"servers": {
+		"restaurant_stream": {
+			"type": "http",
+			"url": "http://127.0.0.1:8000/mcp"
+		},
+		"restaurant_stdio": {
+			"type": "stdio",
+			"command": "/home/bima/Projects/OpenClaw-Behind-the-Scene-Restaurant-Chatbot/.venv/bin/python",
+			"args": ["restaurant_tools.py"]
+		}
+	},
+}

@@ -1,9 +1,10 @@
+import sys
 from typing import TypedDict
 
 from mcp.server.fastmcp import FastMCP
 
 # Initialize FastMCP server
-mcp = FastMCP("restaurant", log_level="ERROR")
+mcp = FastMCP("restaurant", log_level="ERROR", host="127.0.0.1", port=8000)
 
 
 class MenuItem(TypedDict):
@@ -100,7 +101,18 @@ async def format_menu_mcp(items: list[MenuItem]) -> str:
 
 def main():
     # Initialize and run the server
-    mcp.run(transport="stdio")
+    if len(sys.argv) >= 2:
+        if sys.argv[1].strip() == "help":
+            print("How to use:")
+            print()
+            print("restauran_tools.py <stdio|stream>")
+            print("default stdio")
+        elif sys.argv[1].strip() == "stdio":
+            mcp.run(transport="stdio")
+        elif sys.argv[1].strip() == "stream":
+            mcp.run(transport="streamable-http")
+    else:
+        mcp.run(transport="stdio")
 
 
 if __name__ == "__main__":

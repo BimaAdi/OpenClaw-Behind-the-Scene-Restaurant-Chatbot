@@ -1,0 +1,1 @@
+https://code.visualstudio.com/docs/agent-customization/mcp-servers
