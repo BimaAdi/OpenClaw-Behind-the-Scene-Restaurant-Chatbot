@@ -1,4 +1,4 @@
-# OpenClaw Behind The Scene
+# How AI Agent Work
 
 Have you ever wonder how LLM access your file system, accessing social media or do a websearch? does it
 even possible? let's see the architecture of LLM model. Based on the paper that start it all [attention is all you need](https://arxiv.org/pdf/1706.03762) LLM used technique called Attention layer. 

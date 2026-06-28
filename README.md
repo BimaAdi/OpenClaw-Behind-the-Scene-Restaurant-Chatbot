@@ -1,5 +1,5 @@
-# OpenClaw Behind the Scene: Restaurant Chatbot
-Blog and Example how agent access tools
+# How AI Agent Work
+Blog and Example how AI agent work
 
 ## Requirements
 - python 3.13
